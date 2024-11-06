@@ -32,16 +32,9 @@ if [ -z "$ENVIRONMENT" ]; then
     choice=${choice:-1}
 
     case "$choice" in
-        1)
-            ENVIRONMENT="localhost"
-            ;;
-        2)
-            ENVIRONMENT="server"
-            ;;
-        *)
-            echo "Invalid choice. Defaulting to localhost."
-            ENVIRONMENT="localhost"
-            ;;
+        1) ENVIRONMENT="localhost" ;;
+        2) ENVIRONMENT="server" ;;
+        *) echo "Invalid choice. Defaulting to localhost."; ENVIRONMENT="localhost" ;;
     esac
     export ENVIRONMENT
 fi
@@ -54,30 +47,23 @@ if [ "$ENVIRONMENT" == "server" ] && [ -z "$SERVER_URL" ]; then
 fi
 
 echo "Environment set to: $ENVIRONMENT"
-if [ "$ENVIRONMENT" == "server" ]; then
-    echo "Server URL: $SERVER_URL"
-fi
+[ "$ENVIRONMENT" == "server" ] && echo "Server URL: $SERVER_URL"
 
 # Generate .env file based on the selected environment
 echo "Generating .env configuration for Nuxt project..."
-# shellcheck disable=SC2164
-# run generate_docker_compose.py in vumc-picture-api
-cd "$base_dir/vumc-picture-webapp"
-python3 generate_env.py
+cd "$base_dir/vumc-picture-webapp" || exit
+python3 generate_env.py || { echo "Failed to generate .env configuration"; exit 1; }
 
-echo "Testing presence of required commands"
-
+echo "Checking presence of required commands and Docker networks..."
 
 # Create Docker networks if they do not exist
 create_docker_network() {
     local network="$1"
-
     if docker network ls | grep -q "$network"; then
         echo "Network $network already exists. Re-creating..."
         docker network rm "$network"
         sleep 3
     fi
-
     docker network create "$network"
 }
 
@@ -88,8 +74,7 @@ run_docker_compose_down() {
     local compose_file="$3"
     local env_file="$4"
 
-    # shellcheck disable=SC2164
-    cd "$base_dir/$directory"
+    cd "$base_dir/$directory" || exit
     export NETWORK_PREFIX=${network_prefix}
 
     if [ -n "$env_file" ]; then
@@ -106,137 +91,102 @@ run_docker_compose_up() {
     local compose_file="$3"
     local env_file="$4"
 
-    # shellcheck disable=SC2164
-    cd "$base_dir/$directory"
+    cd "$base_dir/$directory" || exit
     export NETWORK_PREFIX=${network_prefix}
-    # shellcheck disable=SC2155
     export GPU_AVAILABLE=$(command -v nvidia-smi > /dev/null 2>&1 && echo 1 || echo 0)
-    # shellcheck disable=SC2155
     export TARGET_ARCH=$(uname -m)
 
     if [ -n "$env_file" ]; then
-        docker compose --verbose -f "${compose_file}" --env-file "${env_file}" build # --no-cache
+        docker compose --verbose -f "${compose_file}" --env-file "${env_file}" build
         docker compose --verbose -f "${compose_file}" --env-file "${env_file}" up -d
     else
-        docker compose --verbose -f "${compose_file}" build # --no-cache
+        docker compose --verbose -f "${compose_file}" build
         docker compose --verbose -f "${compose_file}" up -d
     fi
 }
 
-
-# Get the absolute path of the script
+# Generate hash for network prefix
 SCRIPT_PATH=$(dirname "$(realpath "$0")")
-
-echo "$SCRIPT_PATH"
-# Hash the script path using sha256sum
 HASHED_PATH=$(echo -n "$SCRIPT_PATH" | openssl dgst -sha256 | awk '{print $2}')
 export NETWORK_PREFIX=${HASHED_PATH}
-# shellcheck disable=SC2155
 export GPU_AVAILABLE=$(command -v nvidia-smi > /dev/null 2>&1 && echo 1 || echo 0)
 
-# remove docker-compose.generated.yml if it exists
+# Remove generated docker-compose file if it exists
 rm -f "$base_dir/vumc-picture-api/docker-compose.generated.yml"
 
-# shellcheck disable=SC2164
-cd "$base_dir/vumc-picture-api"
-python3 generate_docker_compose.py
+# Run Python scripts to generate Docker Compose configurations
+cd "$base_dir/vumc-picture-api" || exit
+python3 generate_docker_compose.py || { echo "Failed to generate docker-compose file for API."; exit 1; }
 
-# shellcheck disable=SC2164
-cd "$base_dir/reverse-proxy"
-python3 generate_docker_compose_and_nginx.py
+cd "$base_dir/reverse-proxy" || exit
+python3 generate_docker_compose_and_nginx.py || { echo "Failed to generate docker-compose and nginx config for reverse-proxy."; exit 1; }
 
-# shellcheck disable=SC2164
-cd "$base_dir/vumc-picture-filter"
-python3 generate_docker_compose.py
+cd "$base_dir/vumc-picture-filter" || exit
+python3 generate_docker_compose.py || { echo "Failed to generate docker-compose file for filter."; exit 1; }
 
-# check if docker-compose.generated.yml was created
-if [ ! -f "$base_dir/vumc-picture-api/docker-compose.generated.yml" ]; then
-    echo "Error: docker-compose.generated.yml was not created. Please check generate_docker_compose.py."
-    exit 1
-fi
+# Check if dataset is present in filter
+dataset_dir="$base_dir/vumc-picture-filter/data"
+file_count=$(find "$dataset_dir" -type f | wc -l)
 
-# check if dataset is present in filter
-# shellcheck disable=SC2012
-file_count=$(ls -1 "$base_dir/vumc-picture-filter/data" | wc -l)
-echo "Dataset files found:" $file_count
-
+echo "Dataset files found: $file_count"
 if [ "$file_count" -lt 2 ]; then
-  echo "Only test data set file found"
-  echo "Please add dataset to $base_dir/vumc-picture-filter/data"
-  echo "Before executing this script again"
-  exit 1
+    echo "Only test dataset found in $dataset_dir"
+    echo "Options:"
+    echo "1) Pause and upload dataset, then restart script manually"
+    echo "2) Continue without dataset"
+    echo "3) Exit script"
+    read -p "Choose an option [1]: " dataset_choice
+    dataset_choice=${dataset_choice:-1}
+    case "$dataset_choice" in
+        1) echo "Please upload the dataset and re-run the script manually."; exit 0 ;;
+        2) echo "Continuing without dataset." ;;
+        3) echo "Exiting script."; exit 1 ;;
+        *) echo "Invalid choice. Exiting."; exit 1 ;;
+    esac
 fi
 
-# stop running containers
-echo "Stopping webapp service"
+# Stop any running containers
 run_docker_compose_down "${HASHED_PATH}" "vumc-picture-webapp" "docker-compose.yml"
-echo "Stopping filter service"
 run_docker_compose_down "${HASHED_PATH}" "vumc-picture-filter" "docker-compose.generated.yml"
-echo "Stopping API service"
 run_docker_compose_down "${HASHED_PATH}" "vumc-picture-api" "docker-compose.generated.yml" "secrets.env"
-echo "Stopping reverse proxy"
 run_docker_compose_down "${HASHED_PATH}" "reverse-proxy" "docker-compose.generated.yml"
 
-# Sleep
-echo "Waiting 10 seconds before removing networks"
+# Wait before re-creating networks
 sleep 10
-
-echo "Creating network ${HASHED_PATH}_proxy"
-create_docker_network ${HASHED_PATH}_proxy
+create_docker_network "${HASHED_PATH}_proxy"
 sleep 5
-
-echo "Creating network ${HASHED_PATH}_filtering"
-create_docker_network ${HASHED_PATH}_filtering
-
-echo "Wait 10 seconds for networks to be up"
+create_docker_network "${HASHED_PATH}_filtering"
 sleep 10
 
-# shellcheck disable=SC2164
-cd "$base_dir"
-echo "Starting webapp service"
+# Start services
 run_docker_compose_up "${HASHED_PATH}" "vumc-picture-webapp" "docker-compose.yml"
-echo "Starting filter service"
 run_docker_compose_up "${HASHED_PATH}" "vumc-picture-filter" "docker-compose.generated.yml"
-echo "Starting API service"
 run_docker_compose_up "${HASHED_PATH}" "vumc-picture-api" "docker-compose.generated.yml" "secrets.env"
 
-echo "Wait 20 seconds for API to be up"
+echo "Waiting 20 seconds for API to initialize..."
 sleep 20
 
-# shellcheck disable=SC2164
-cd "$base_dir/vumc-picture-api"
-echo "Aggregating dataset. This may take a few minutes depending on architecture"
-docker exec -it vumc-picture-api-api-1 /bin/sh -c "cd /var/www/laravel/vumc-picture-api && php artisan dataset:update"
-# shellcheck disable=SC2164
-cd "$base_dir"
+# Aggregate dataset
+cd "$base_dir/vumc-picture-api" || exit
+docker exec -it vumc-picture-api-api-1 /bin/sh -c "cd /var/www/laravel/vumc-picture-api && php artisan dataset:update" || echo "Failed to update dataset."
 
-echo "Restarting reverse proxy"
+# Restart reverse proxy
 run_docker_compose_down "${HASHED_PATH}" "reverse-proxy" "docker-compose.generated.yml"
 run_docker_compose_up "${HASHED_PATH}" "reverse-proxy" "docker-compose.generated.yml"
 
-sleep 20
-
-# Certbot when ENVIRONMENT is 'server'
+# Certbot if environment is 'server'
 if [ "$ENVIRONMENT" == "server" ]; then
-    # Strip protocol of SERVER_URL for Certbot
-    # shellcheck disable=SC2001
     DOMAIN=$(echo "$SERVER_URL" | sed -e 's~http[s]*://~~g')
-    echo "Running Certbot for SSL certificate generation for domain: $DOMAIN"
-
+    echo "Running Certbot for domain: $DOMAIN"
     docker exec reverse-proxy-nginx-1 certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m info@"$DOMAIN"
-
     sleep 20
 fi
 
-# Nginx herstarten om wijzigingen toe te passen
-echo "Reloading Nginx to apply SSL configuration"
-docker exec reverse-proxy-nginx-1 nginx -s reload
+# Reload Nginx
+docker exec reverse-proxy-nginx-1 nginx -s reload || echo "Failed to reload Nginx."
 
-# shellcheck disable=SC2164
-cd "$base_dir/vumc-picture-api"
-echo "Optional account creation. Do not skip if you don't have an account yet"
-docker exec -it vumc-picture-api-api-1 /bin/sh -c "cd /var/www/laravel/vumc-picture-api && php artisan user:create --confirm"
-# shellcheck disable=SC2164
-cd "$base_dir"
+# Optional user creation
+cd "$base_dir/vumc-picture-api" || exit
+docker exec -it vumc-picture-api-api-1 /bin/sh -c "cd /var/www/laravel/vumc-picture-api && php artisan user:create --confirm" || echo "User creation failed."
 
-echo "Installation completed!"
+echo "Installation and setup completed successfully!"
