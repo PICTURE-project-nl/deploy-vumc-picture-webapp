@@ -1,0 +1,1 @@
+sudo docker exec -it reverse-proxy-nginx-1 certbot --nginx -d tool.pictureproject.nl
