@@ -50,18 +50,26 @@ The PICTURE Project is designed to facilitate the processing, analysis, and visu
 
 Follow these steps to set up and run the project:
 
-1. **Set up SSH for GitLab**:
+1. **Set up SSH for GitHub**:
     - Ensure SSH access to all picture-ac repositories.
     - Open a terminal on mac or Git bash on windows.
     - Example commands to add an SSH key:
       ```bash
-      ssh-keygen -f ~/.ssh/gitlab
+      ssh-keygen -f ~/.ssh/github
       eval $(ssh-agent -s)
-      ssh-add ~/.ssh/gitlab
-      cat ~/.ssh/gitlab.pub
+      ssh-add ~/.ssh/github
+      cat ~/.ssh/github.pub
       ```
-    - Add the SSH key to your GitLab account: <https://gitlab.com/-/user_settings/ssh_keys>. **Do not change usage type and expiration date**
+    - Add the SSH key to your GitHub account: <https://github.com/settings/keys>. **Do not change usage type and expiration date**
     - Make sure you check in which environment the SSH key was added and proceed with that environment
+    - Test the connection to confirm SSH is set up correctly:
+      ```bash
+      ssh -T git@github.com
+      ```
+      If the connection is successful, you should see a message like:
+      ```
+      Hi <your-username>! You've successfully authenticated, but GitHub does not provide shell access.
+      ```
 
 2. **Create and navigate to your empty project folder**:
     - On Mac/Linux: `mkdir picture-project && cd picture-project`
@@ -73,7 +81,7 @@ Follow these steps to set up and run the project:
     - Ensure Git is installed before proceeding.
 
 4. **Clone this repository**:
-    - Use the following command: `git clone git@gitlab.com:picture-activecollective/deploy-vumc-picture-webapp.git`
+    - Use the following command: `git clone git@github.com:PICTURE-project-nl/deploy-vumc-picture-webapp.git`
 
 5. **Clone other repositories**:
     - Command: `./clone.sh` to clone necessary repositories and move files. _Note: make sure that the VPN connection has been made before building vumc-picture-webapp_
@@ -136,9 +144,8 @@ OR
 
 ### Hardware and Operating System Requirements
 
-- **Tested on**: Ubuntu and macOS 14.4.1.
+- **Tested on**: Ubuntu, macOS 14.4.1 and Microsoft Windows.
 - **GPU Support**: Requires a GPU with CUDA support for running the filter (tested on NVIDIA).
-- **Windows**: Not yet tested on Microsoft Windows.
 
 ## License
 
