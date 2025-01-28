@@ -36,3 +36,33 @@ To resolve this:
      ```
 
 Following these steps ensures you can consistently pull the NVIDIA PyTorch Docker container without authentication errors.
+
+
+### Issue: Apache Occupying Port 80 Instead of Reverse-Proxy Nginx
+
+#### Problem
+Sometimes, Apache is running on port 80, preventing the reverse-proxy Nginx container from binding to the port.
+
+#### Solution
+To ensure Nginx runs on port 80:
+
+1. **Check Which Service is Active on Port 80**:
+   - Run:
+     ```bash
+     sudo netstat -tuln | grep :80
+     ```
+     This will display the service currently using port 80.
+
+2. **Stop Apache Service**:
+   - Run:
+     ```bash
+     sudo systemctl stop apache2
+     ```
+     This stops Apache from occupying port 80.
+
+3. **Start the Nginx Container**:
+   - Run:
+     ```bash
+     docker start reverse-proxy-nginx-1
+     ```
+     This starts the Nginx container, allowing it to bind to port 80.
